@@ -9,6 +9,7 @@
   <style>
     [x-cloak] { display: none !important; }
     body { font-family: 'Inter', system-ui, sans-serif; }
+    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   </style>
   <script>
     tailwind.config = {
@@ -48,113 +49,227 @@
     </div>
   </header>
 
-  <!-- Stats Bar -->
-  <div class="border-b border-border px-6 py-3 bg-card/50">
-    <div class="max-w-6xl mx-auto flex gap-6 text-sm">
-      <span><strong x-text="stats.total"></strong> <span class="text-muted">total listings</span></span>
-      <span><strong x-text="stats.sculpture"></strong> <span class="text-muted">sculpture relevant</span></span>
-      <template x-for="s in stats.sources" :key="s.source">
-        <span class="text-muted"><span x-text="s.count"></span> from <span x-text="sourceLabel(s.source)"></span></span>
-      </template>
+  <!-- Tabs -->
+  <div class="border-b border-border px-6">
+    <div class="max-w-6xl mx-auto flex gap-1">
+      <button @click="activeTab = 'browse'" :class="activeTab === 'browse' ? 'border-accent text-white' : 'border-transparent text-muted hover:text-white'"
+        class="px-4 py-3 text-sm font-medium border-b-2 transition">
+        Browse Residencies
+      </button>
+      <button @click="activeTab = 'applications'; fetchApplications()" :class="activeTab === 'applications' ? 'border-accent text-white' : 'border-transparent text-muted hover:text-white'"
+        class="px-4 py-3 text-sm font-medium border-b-2 transition">
+        My Applications
+        <span x-show="applications.length > 0" class="ml-1 bg-accent/20 text-accent text-xs px-1.5 py-0.5 rounded-full" x-text="applications.length"></span>
+      </button>
     </div>
   </div>
 
-  <!-- Filters -->
-  <div class="px-6 py-4 border-b border-border">
-    <div class="max-w-6xl mx-auto flex flex-wrap gap-3 items-center">
-      <input type="text" x-model="search" @input.debounce.300ms="fetchResidencies()" placeholder="Search residencies..."
-        class="bg-card border border-border rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:border-accent">
+  <!-- ==================== BROWSE TAB ==================== -->
+  <div x-show="activeTab === 'browse'">
 
-      <select x-model="sourceFilter" @change="fetchResidencies()"
-        class="bg-card border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent">
-        <option value="">All Sources</option>
-        <option value="aca">Artist Communities Alliance</option>
-        <option value="resartis">Res Artis</option>
-        <option value="colossal">Colossal</option>
-        <option value="creative-capital">Creative Capital</option>
-        <option value="direct">Direct Programs</option>
-      </select>
-
-      <label class="flex items-center gap-2 text-sm cursor-pointer">
-        <input type="checkbox" x-model="sculptureOnly" @change="fetchResidencies()" class="accent-accent">
-        Sculpture only
-      </label>
-
-      <label class="flex items-center gap-2 text-sm cursor-pointer">
-        <input type="checkbox" x-model="starredOnly" @change="fetchResidencies()" class="accent-accent">
-        Starred
-      </label>
-
-      <label class="flex items-center gap-2 text-sm cursor-pointer text-muted">
-        <input type="checkbox" x-model="showHidden" @change="fetchResidencies()" class="accent-accent">
-        Show hidden
-      </label>
-    </div>
-  </div>
-
-  <!-- Listings -->
-  <main class="px-6 py-6">
-    <div class="max-w-6xl mx-auto">
-
-      <!-- Empty State -->
-      <div x-show="residencies.length === 0 && !loading" class="text-center py-20 text-muted">
-        <p class="text-lg">No residencies found</p>
-        <p class="text-sm mt-2">Click "Refresh Sources" to scrape the latest listings</p>
-      </div>
-
-      <!-- Loading -->
-      <div x-show="loading" class="text-center py-20 text-muted">
-        <p>Loading...</p>
-      </div>
-
-      <!-- Cards -->
-      <div class="grid gap-4">
-        <template x-for="r in residencies" :key="r.id">
-          <div class="bg-card border border-border rounded-xl p-5 hover:border-accent/50 transition group">
-            <div class="flex items-start justify-between gap-4">
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 mb-1">
-                  <a :href="r.url" target="_blank" rel="noopener"
-                    class="text-lg font-semibold hover:text-accent transition truncate" x-text="r.name"></a>
-                  <span x-show="r.sculpture_relevant"
-                    class="shrink-0 bg-indigo-500/20 text-indigo-400 text-xs px-2 py-0.5 rounded-full">sculpture</span>
-                </div>
-                <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted mt-1">
-                  <span x-show="r.organization" x-text="r.organization"></span>
-                  <span x-show="r.location" x-text="r.location"></span>
-                  <span x-show="r.source" class="text-xs bg-border/50 px-2 py-0.5 rounded" x-text="sourceLabel(r.source)"></span>
-                </div>
-                <p x-show="r.description" class="text-sm text-muted mt-2 line-clamp-2" x-text="r.description"></p>
-                <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm mt-3">
-                  <span x-show="r.deadline" :class="deadlineClass(r.deadline)">
-                    Deadline: <span x-text="r.deadline === 'rolling' ? 'Rolling' : formatDate(r.deadline)"></span>
-                  </span>
-                  <span x-show="r.disciplines" class="text-muted" x-text="r.disciplines"></span>
-                  <span x-show="r.stipend" class="text-emerald-400" x-text="r.stipend"></span>
-                  <span x-show="r.duration" class="text-muted" x-text="r.duration"></span>
-                </div>
-              </div>
-
-              <!-- Actions -->
-              <div class="flex flex-col gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition">
-                <button @click="toggleStar(r)" class="text-xl" :class="r.starred ? 'text-yellow-400' : 'text-muted hover:text-yellow-400'">
-                  <span x-text="r.starred ? '★' : '☆'"></span>
-                </button>
-                <button @click="hideResidency(r)" class="text-muted hover:text-red-400 text-sm">
-                  Hide
-                </button>
-              </div>
-            </div>
-          </div>
+    <!-- Stats Bar -->
+    <div class="border-b border-border px-6 py-3 bg-card/50">
+      <div class="max-w-6xl mx-auto flex gap-6 text-sm">
+        <span><strong x-text="stats.total"></strong> <span class="text-muted">total</span></span>
+        <span><strong x-text="stats.sculpture"></strong> <span class="text-muted">sculpture relevant</span></span>
+        <template x-for="s in stats.sources" :key="s.source">
+          <span class="text-muted"><span x-text="s.count"></span> from <span x-text="sourceLabel(s.source)"></span></span>
         </template>
       </div>
     </div>
-  </main>
+
+    <!-- Filters -->
+    <div class="px-6 py-4 border-b border-border">
+      <div class="max-w-6xl mx-auto flex flex-wrap gap-3 items-center">
+        <input type="text" x-model="search" @input.debounce.300ms="fetchResidencies()" placeholder="Search residencies..."
+          class="bg-card border border-border rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:border-accent">
+
+        <select x-model="sourceFilter" @change="fetchResidencies()"
+          class="bg-card border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent">
+          <option value="">All Sources</option>
+          <option value="aca">Artist Communities Alliance</option>
+          <option value="resartis">Res Artis</option>
+          <option value="colossal">Colossal</option>
+          <option value="creative-capital">Creative Capital</option>
+          <option value="direct">Direct Programs</option>
+        </select>
+
+        <label class="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" x-model="sculptureOnly" @change="fetchResidencies()" class="accent-accent">
+          Sculpture only
+        </label>
+
+        <label class="flex items-center gap-2 text-sm cursor-pointer">
+          <input type="checkbox" x-model="starredOnly" @change="fetchResidencies()" class="accent-accent">
+          Starred
+        </label>
+
+        <label class="flex items-center gap-2 text-sm cursor-pointer text-muted">
+          <input type="checkbox" x-model="showExpired" @change="fetchResidencies()" class="accent-accent">
+          Show expired
+        </label>
+
+        <label class="flex items-center gap-2 text-sm cursor-pointer text-muted">
+          <input type="checkbox" x-model="showHidden" @change="fetchResidencies()" class="accent-accent">
+          Show hidden
+        </label>
+      </div>
+    </div>
+
+    <!-- Listings -->
+    <main class="px-6 py-6">
+      <div class="max-w-6xl mx-auto">
+
+        <div x-show="residencies.length === 0 && !loading" class="text-center py-20 text-muted">
+          <p class="text-lg">No residencies found</p>
+          <p class="text-sm mt-2">Click "Refresh Sources" to scrape the latest listings</p>
+        </div>
+
+        <div x-show="loading" class="text-center py-20 text-muted">
+          <p>Loading...</p>
+        </div>
+
+        <div class="grid gap-4">
+          <template x-for="r in residencies" :key="r.id">
+            <div class="bg-card border border-border rounded-xl p-5 hover:border-accent/50 transition group">
+              <div class="flex items-start justify-between gap-4">
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-1 flex-wrap">
+                    <a :href="r.url" target="_blank" rel="noopener"
+                      class="text-lg font-semibold hover:text-accent transition" x-text="r.name"></a>
+                    <span x-show="r.sculpture_relevant"
+                      class="shrink-0 bg-indigo-500/20 text-indigo-400 text-xs px-2 py-0.5 rounded-full">sculpture</span>
+                    <a :href="r.url" target="_blank" rel="noopener"
+                      class="shrink-0 text-xs text-muted hover:text-accent transition">
+                      Visit Site &rarr;
+                    </a>
+                  </div>
+                  <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted mt-1">
+                    <span x-show="r.organization" x-text="r.organization"></span>
+                    <span x-show="r.location" x-text="r.location"></span>
+                    <span x-show="r.source" class="text-xs bg-border/50 px-2 py-0.5 rounded" x-text="sourceLabel(r.source)"></span>
+                  </div>
+                  <p x-show="r.description" class="text-sm text-muted mt-2 line-clamp-2" x-text="r.description"></p>
+                  <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm mt-3">
+                    <span x-show="r.deadline" :class="deadlineClass(r.deadline)">
+                      Deadline: <span x-text="r.deadline === 'rolling' ? 'Rolling' : formatDate(r.deadline)"></span>
+                      <span x-show="daysUntil(r.deadline) !== null && daysUntil(r.deadline) >= 0" class="text-xs ml-1 opacity-70"
+                        x-text="'(' + daysUntil(r.deadline) + 'd left)'"></span>
+                    </span>
+                    <span x-show="r.disciplines" class="text-muted" x-text="r.disciplines"></span>
+                    <span x-show="r.stipend" class="text-emerald-400" x-text="r.stipend"></span>
+                    <span x-show="r.duration" class="text-muted" x-text="r.duration"></span>
+                  </div>
+                </div>
+
+                <!-- Actions -->
+                <div class="flex flex-col gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition">
+                  <button @click="toggleStar(r)" class="text-xl" :class="r.starred ? 'text-yellow-400' : 'text-muted hover:text-yellow-400'"
+                    :title="r.starred ? 'Unstar' : 'Star'">
+                    <span x-text="r.starred ? '★' : '☆'"></span>
+                  </button>
+                  <button @click="startApplication(r)" class="text-xs text-accent hover:text-indigo-400" title="Draft application">
+                    Apply
+                  </button>
+                  <button @click="hideResidency(r)" class="text-muted hover:text-red-400 text-xs" title="Hide listing">
+                    Hide
+                  </button>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ==================== APPLICATIONS TAB ==================== -->
+  <div x-show="activeTab === 'applications'">
+    <main class="px-6 py-6">
+      <div class="max-w-6xl mx-auto">
+
+        <div x-show="applications.length === 0" class="text-center py-20 text-muted">
+          <p class="text-lg">No draft applications yet</p>
+          <p class="text-sm mt-2">Click "Apply" on a residency listing to start drafting</p>
+        </div>
+
+        <div class="grid gap-6">
+          <template x-for="a in applications" :key="a.id">
+            <div class="bg-card border border-border rounded-xl p-6">
+              <!-- Header -->
+              <div class="flex items-start justify-between gap-4 mb-4">
+                <div>
+                  <div class="flex items-center gap-3 mb-1">
+                    <h3 class="text-lg font-semibold" x-text="a.residency_name"></h3>
+                    <select x-model="a.status" @change="updateApplication(a)"
+                      class="text-xs rounded-full px-2 py-0.5 border-0 font-medium"
+                      :class="{
+                        'bg-gray-500/20 text-gray-400': a.status === 'draft',
+                        'bg-yellow-500/20 text-yellow-400': a.status === 'in-progress',
+                        'bg-blue-500/20 text-blue-400': a.status === 'submitted',
+                        'bg-emerald-500/20 text-emerald-400': a.status === 'accepted',
+                        'bg-red-500/20 text-red-400': a.status === 'rejected'
+                      }">
+                      <option value="draft">Draft</option>
+                      <option value="in-progress">In Progress</option>
+                      <option value="submitted">Submitted</option>
+                      <option value="accepted">Accepted</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </div>
+                  <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted">
+                    <span x-show="a.organization" x-text="a.organization"></span>
+                    <span x-show="a.location" x-text="a.location"></span>
+                    <span x-show="a.deadline" :class="deadlineClass(a.deadline)">
+                      Deadline: <span x-text="a.deadline === 'rolling' ? 'Rolling' : formatDate(a.deadline)"></span>
+                      <span x-show="daysUntil(a.deadline) !== null && daysUntil(a.deadline) >= 0" class="text-xs ml-1 opacity-70"
+                        x-text="'(' + daysUntil(a.deadline) + 'd left)'"></span>
+                    </span>
+                    <a :href="a.residency_url" target="_blank" rel="noopener"
+                      class="text-accent hover:text-indigo-400 transition">Visit Site &rarr;</a>
+                  </div>
+                </div>
+                <button @click="deleteApplication(a)" class="text-muted hover:text-red-400 text-sm">Delete</button>
+              </div>
+
+              <!-- Form Fields -->
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-sm font-medium text-muted mb-1">Artist Statement</label>
+                  <textarea x-model="a.artist_statement" @input.debounce.1000ms="updateApplication(a)" rows="4"
+                    placeholder="Why are you a good fit for this residency? What's your practice about?"
+                    class="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent resize-y"></textarea>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-muted mb-1">Project Proposal</label>
+                  <textarea x-model="a.project_proposal" @input.debounce.1000ms="updateApplication(a)" rows="4"
+                    placeholder="What would you create during this residency? What materials, space, or resources would you need?"
+                    class="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent resize-y"></textarea>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-muted mb-1">Notes</label>
+                  <textarea x-model="a.notes" @input.debounce.1000ms="updateApplication(a)" rows="2"
+                    placeholder="Materials to prepare, contacts, links, reminders..."
+                    class="w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent resize-y"></textarea>
+                </div>
+              </div>
+
+              <div class="mt-3 text-xs text-muted">
+                Last edited: <span x-text="formatDate(a.updated_at)"></span>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+    </main>
+  </div>
 
   <script>
     function app() {
       return {
+        activeTab: 'browse',
         residencies: [],
+        applications: [],
         stats: { total: 0, sculpture: 0, sources: [], lastScrape: null },
         loading: false,
         scraping: false,
@@ -162,11 +277,11 @@
         sourceFilter: '',
         sculptureOnly: true,
         starredOnly: false,
+        showExpired: false,
         showHidden: false,
 
         async init() {
-          await this.fetchStats();
-          await this.fetchResidencies();
+          await Promise.all([this.fetchStats(), this.fetchResidencies(), this.fetchApplications()]);
         },
 
         async fetchResidencies() {
@@ -176,6 +291,7 @@
           if (this.sculptureOnly) params.set('sculpture', '1');
           if (this.starredOnly) params.set('starred', '1');
           if (this.showHidden) params.set('show_hidden', '1');
+          if (this.showExpired) params.set('show_expired', '1');
           if (this.search) params.set('search', this.search);
 
           const res = await fetch(`/api/residencies?${params}`);
@@ -186,6 +302,11 @@
         async fetchStats() {
           const res = await fetch('/api/residencies/stats');
           this.stats = await res.json();
+        },
+
+        async fetchApplications() {
+          const res = await fetch('/api/applications');
+          this.applications = await res.json();
         },
 
         async scrape() {
@@ -212,6 +333,35 @@
           this.fetchStats();
         },
 
+        async startApplication(r) {
+          const res = await fetch('/api/applications', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ residency_id: r.id })
+          });
+          await res.json();
+          await this.fetchApplications();
+          this.activeTab = 'applications';
+        },
+
+        async updateApplication(a) {
+          await fetch(`/api/applications/${a.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              status: a.status,
+              artist_statement: a.artist_statement,
+              project_proposal: a.project_proposal,
+              notes: a.notes
+            })
+          });
+        },
+
+        async deleteApplication(a) {
+          await fetch(`/api/applications/${a.id}`, { method: 'DELETE' });
+          this.applications = this.applications.filter(x => x.id !== a.id);
+        },
+
         sourceLabel(source) {
           const labels = {
             'aca': 'ACA',
@@ -234,6 +384,13 @@
           if (days < 7) return 'text-red-400 font-semibold';
           if (days < 30) return 'text-yellow-400';
           return 'text-emerald-400';
+        },
+
+        daysUntil(deadline) {
+          if (!deadline || deadline === 'rolling') return null;
+          const d = new Date(deadline);
+          if (isNaN(d)) return null;
+          return Math.ceil((d - new Date()) / (1000 * 60 * 60 * 24));
         },
 
         formatDate(dateStr) {

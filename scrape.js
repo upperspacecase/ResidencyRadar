@@ -32,18 +32,33 @@ function normalizeDeadline(raw) {
     const m = months[match[1].toLowerCase()];
     if (m) return `${match[3]}-${m}-${match[2].padStart(2, '0')}`;
   }
+  // DD Mon YYYY format (e.g. "12 Mar 2026")
+  const dmy = lower.match(/(\d{1,2})\s+(\w+)\s+(\d{4})/);
+  if (dmy) {
+    const months = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06',
+      jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12',
+      january: '01', february: '02', march: '03', april: '04', june: '06',
+      july: '07', august: '08', september: '09', october: '10', november: '11', december: '12' };
+    const m = months[dmy[2].toLowerCase()];
+    if (m) return `${dmy[3]}-${m}-${dmy[1].padStart(2, '0')}`;
+  }
   const isoMatch = lower.match(/(\d{4})-(\d{2})-(\d{2})/);
   if (isoMatch) return isoMatch[0];
   return raw.trim();
 }
 
-async function fetchPage(url) {
-  const res = await fetch(url, {
-    headers: { 'User-Agent': USER_AGENT },
-    signal: AbortSignal.timeout(15000)
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return await res.text();
+async function fetchPage(url, { skipSSL = false } = {}) {
+  if (skipSSL) process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': USER_AGENT },
+      signal: AbortSignal.timeout(15000)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+    return await res.text();
+  } finally {
+    if (skipSSL) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+  }
 }
 
 // ---------------------
@@ -88,28 +103,32 @@ async function scrapeACA() {
 async function scrapeResArtis() {
   const results = [];
   try {
-    const html = await fetchPage('https://resartis.org/open-calls/');
+    const html = await fetchPage('https://resartis.org/open-calls/', { skipSSL: true });
     const $ = load(html);
 
-    $('article, .post, .entry, .open-call-item, .wp-block-post').each((_, el) => {
+    $('article.card.card--post').each((_, el) => {
       const $el = $(el);
-      const nameEl = $el.find('h2 a, h3 a, .entry-title a').first();
+      const nameEl = $el.find('h2.card__title a').first();
       const name = nameEl.text().trim();
       const href = nameEl.attr('href');
       if (!name || !href) return;
 
       const url = href.startsWith('http') ? href : `https://resartis.org${href}`;
-      const desc = $el.find('.entry-content, .excerpt, .entry-summary, p').first().text().trim();
-      const deadlineMatch = desc.match(/deadline[:\s]*([^.|\n]+)/i);
+      const dtText = $el.find('dt').text() || '';
+
+      const deadlineMatch = dtText.match(/Deadline:\s*(.+?)(?:\s*Country:|$)/i);
+      const countryMatch = dtText.match(/Country:\s*(.+)/i);
+      const deadline = deadlineMatch ? deadlineMatch[1].trim() : '';
+      const country = countryMatch ? countryMatch[1].trim() : '';
 
       results.push({
         id: makeId('resartis', name, url),
         name, organization: '', source: 'resartis', url,
-        location: '', country: '',
-        deadline: normalizeDeadline(deadlineMatch ? deadlineMatch[1] : ''),
+        location: country, country,
+        deadline: normalizeDeadline(deadline),
         disciplines: '', duration: '', stipend: '', fee: '',
-        description: desc.slice(0, 500),
-        sculpture_relevant: isSculptureRelevant(`${name} ${desc}`)
+        description: '',
+        sculpture_relevant: isSculptureRelevant(name)
       });
     });
   } catch (err) {
@@ -196,42 +215,57 @@ async function scrapeColossal() {
 async function scrapeCreativeCapital() {
   const results = [];
   try {
-    for (let page = 1; page <= 5; page++) {
-      const url = `https://creative-capital.org/artist-resources/artist-opportunities/${page > 1 ? `?page=${page}` : ''}`;
-      try {
-        const html = await fetchPage(url);
-        const $ = load(html);
+    // Page 1 has ~24 of 112 listings (pagination is JS-only, so we get page 1)
+    const html = await fetchPage('https://creative-capital.org/artist-resources/artist-opportunities/');
+    const $ = load(html);
 
-        $('.opportunity-card, .post, article, .entry, .resource-item, .wp-block-post').each((_, el) => {
-          const $el = $(el);
-          const nameEl = $el.find('h2 a, h3 a, .entry-title a, a.title').first();
-          const name = nameEl.text().trim();
-          const href = nameEl.attr('href');
-          if (!name) return;
+    // Featured opportunities (top section)
+    $('section.block-header-featured-opportunities .block-featured-items a.item').each((_, el) => {
+      const $el = $(el);
+      const name = $el.find('.item-title h3').text().trim();
+      const href = $el.attr('href');
+      if (!name || !href) return;
 
-          const link = href ? (href.startsWith('http') ? href : `https://creative-capital.org${href}`) : url;
-          const desc = $el.find('p, .excerpt, .description, .entry-content').first().text().trim();
-          const type = $el.find('.type, .category, .tag').text().trim().toLowerCase();
-          const deadline = $el.find('.deadline, .date').text().trim();
+      const link = href.startsWith('http') ? href : `https://creative-capital.org${href}`;
+      const info = $el.find('.item-info span.label-text').text().trim();
+      const desc = $el.find('.item-desc p').text().trim();
+      const deadlineMatch = info.match(/Deadline:\s*(.+)/i);
 
-          if (type && !type.includes('residenc') && !type.includes('fellowship') && !type.includes('grant')) return;
+      results.push({
+        id: makeId('creative-capital', name, link),
+        name, organization: 'Creative Capital', source: 'creative-capital', url: link,
+        location: '', country: '',
+        deadline: normalizeDeadline(deadlineMatch ? deadlineMatch[1] : ''),
+        disciplines: '', duration: '', stipend: '', fee: '',
+        description: desc.slice(0, 500),
+        sculpture_relevant: isSculptureRelevant(`${name} ${desc}`)
+      });
+    });
 
-          results.push({
-            id: makeId('creative-capital', name, link),
-            name, organization: '', source: 'creative-capital', url: link,
-            location: '', country: '',
-            deadline: normalizeDeadline(deadline),
-            disciplines: '', duration: '', stipend: '', fee: '',
-            description: desc.slice(0, 500),
-            sculpture_relevant: isSculptureRelevant(`${name} ${desc}`)
-          });
-        });
+    // Grid listings
+    $('section.block-opportunities-grid .items-holder a.item').each((_, el) => {
+      const $el = $(el);
+      const name = $el.find('.item-title h3.xsmall-title').text().trim();
+      const href = $el.attr('href');
+      if (!name || !href) return;
 
-        await new Promise(r => setTimeout(r, 2000)); // Be respectful
-      } catch {
-        break;
-      }
-    }
+      const link = href.startsWith('http') ? href : `https://creative-capital.org${href}`;
+      const spans = $el.find('.item-info span.label-text');
+      const deadlineText = spans.first().text().trim();
+      const location = spans.length > 1 ? spans.eq(1).text().trim() : '';
+      const desc = $el.find('.item-desc p.p-xsmall').text().trim();
+      const deadlineMatch = deadlineText.match(/Deadline:\s*(.+)/i);
+
+      results.push({
+        id: makeId('creative-capital', name, link),
+        name, organization: '', source: 'creative-capital', url: link,
+        location, country: '',
+        deadline: normalizeDeadline(deadlineMatch ? deadlineMatch[1] : ''),
+        disciplines: '', duration: '', stipend: '', fee: '',
+        description: desc.slice(0, 500),
+        sculpture_relevant: isSculptureRelevant(`${name} ${desc}`)
+      });
+    });
   } catch (err) {
     console.error('Creative Capital scrape error:', err.message);
     logScrape('creative-capital', 'error', 0, err.message);

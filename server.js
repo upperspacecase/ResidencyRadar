@@ -25,12 +25,16 @@ app.get('/api/residencies/stats', (req, res) => {
 
 // GET /api/residencies
 app.get('/api/residencies', (req, res) => {
-  const { source, sculpture, starred, show_hidden, search } = req.query;
+  const { source, sculpture, starred, show_hidden, show_expired, search } = req.query;
   let where = [];
   let params = {};
 
   if (!show_hidden) {
     where.push('hidden = 0');
+  }
+  // Hide expired deadlines by default
+  if (!show_expired) {
+    where.push("(deadline = 'rolling' OR deadline = '' OR deadline >= date('now'))");
   }
   if (source) {
     where.push('source = @source');
@@ -96,6 +100,67 @@ app.post('/api/scrape', async (req, res) => {
 app.get('/api/scrape-log', (req, res) => {
   const rows = db.prepare('SELECT * FROM scrape_log ORDER BY id DESC LIMIT 50').all();
   res.json(rows);
+});
+
+// ---------------------
+// Applications
+// ---------------------
+
+// GET /api/applications
+app.get('/api/applications', (req, res) => {
+  const rows = db.prepare(`
+    SELECT a.*, r.name as residency_name, r.organization, r.url as residency_url,
+           r.location, r.deadline, r.disciplines, r.stipend
+    FROM applications a
+    JOIN residencies r ON a.residency_id = r.id
+    ORDER BY a.updated_at DESC
+  `).all();
+  res.json(rows);
+});
+
+// POST /api/applications
+app.post('/api/applications', (req, res) => {
+  const { residency_id } = req.body;
+  if (!residency_id) return res.status(400).json({ error: 'residency_id required' });
+
+  const existing = db.prepare('SELECT id FROM applications WHERE residency_id = ?').get(residency_id);
+  if (existing) return res.json(existing);
+
+  const result = db.prepare(`
+    INSERT INTO applications (residency_id) VALUES (?)
+  `).run(residency_id);
+  res.json({ id: result.lastInsertRowid });
+});
+
+// PUT /api/applications/:id
+app.put('/api/applications/:id', (req, res) => {
+  const { status, artist_statement, project_proposal, notes } = req.body;
+  const fields = [];
+  const params = { id: req.params.id };
+
+  if (status !== undefined) { fields.push('status = @status'); params.status = status; }
+  if (artist_statement !== undefined) { fields.push('artist_statement = @artist_statement'); params.artist_statement = artist_statement; }
+  if (project_proposal !== undefined) { fields.push('project_proposal = @project_proposal'); params.project_proposal = project_proposal; }
+  if (notes !== undefined) { fields.push('notes = @notes'); params.notes = notes; }
+
+  if (fields.length === 0) return res.status(400).json({ error: 'No fields to update' });
+
+  fields.push("updated_at = datetime('now')");
+  db.prepare(`UPDATE applications SET ${fields.join(', ')} WHERE id = @id`).run(params);
+  const row = db.prepare(`
+    SELECT a.*, r.name as residency_name, r.organization, r.url as residency_url,
+           r.location, r.deadline, r.disciplines, r.stipend
+    FROM applications a
+    JOIN residencies r ON a.residency_id = r.id
+    WHERE a.id = ?
+  `).get(req.params.id);
+  res.json(row);
+});
+
+// DELETE /api/applications/:id
+app.delete('/api/applications/:id', (req, res) => {
+  db.prepare('DELETE FROM applications WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
 });
 
 app.listen(PORT, () => {
