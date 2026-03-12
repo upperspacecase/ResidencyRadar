@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ResidencyRadar</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    body { font-family: 'Inter', system-ui, sans-serif; }
+  </style>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            bg: '#0f1117',
+            card: '#1a1d27',
+            border: '#2a2d3a',
+            accent: '#6366f1',
+            muted: '#9ca3af',
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-bg text-white min-h-screen" x-data="app()" x-init="init()" x-cloak>
+
+  <!-- Header -->
+  <header class="border-b border-border px-6 py-4">
+    <div class="max-w-6xl mx-auto flex items-center justify-between">
+      <div>
+        <h1 class="text-2xl font-bold">ResidencyRadar</h1>
+        <p class="text-muted text-sm mt-1">Artist residency aggregator for sculptors</p>
+      </div>
+      <div class="flex items-center gap-4">
+        <span class="text-xs text-muted" x-show="stats.lastScrape">
+          Last updated: <span x-text="formatDate(stats.lastScrape)"></span>
+        </span>
+        <button @click="scrape()" :disabled="scraping"
+          class="bg-accent hover:bg-indigo-600 px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition">
+          <span x-show="!scraping">Refresh Sources</span>
+          <span x-show="scraping">Scraping...</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Stats Bar -->
+  <div class="border-b border-border px-6 py-3 bg-card/50">
+    <div class="max-w-6xl mx-auto flex gap-6 text-sm">
+      <span><strong x-text="stats.total"></strong> <span class="text-muted">total listings</span></span>
+      <span><strong x-text="stats.sculpture"></strong> <span class="text-muted">sculpture relevant</span></span>
+      <template x-for="s in stats.sources" :key="s.source">
+        <span class="text-muted"><span x-text="s.count"></span> from <span x-text="sourceLabel(s.source)"></span></span>
+      </template>
+    </div>
+  </div>
+
+  <!-- Filters -->
+  <div class="px-6 py-4 border-b border-border">
+    <div class="max-w-6xl mx-auto flex flex-wrap gap-3 items-center">
+      <input type="text" x-model="search" @input.debounce.300ms="fetchResidencies()" placeholder="Search residencies..."
+        class="bg-card border border-border rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:border-accent">
+
+      <select x-model="sourceFilter" @change="fetchResidencies()"
+        class="bg-card border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-accent">
+        <option value="">All Sources</option>
+        <option value="aca">Artist Communities Alliance</option>
+        <option value="resartis">Res Artis</option>
+        <option value="colossal">Colossal</option>
+        <option value="creative-capital">Creative Capital</option>
+        <option value="direct">Direct Programs</option>
+      </select>
+
+      <label class="flex items-center gap-2 text-sm cursor-pointer">
+        <input type="checkbox" x-model="sculptureOnly" @change="fetchResidencies()" class="accent-accent">
+        Sculpture only
+      </label>
+
+      <label class="flex items-center gap-2 text-sm cursor-pointer">
+        <input type="checkbox" x-model="starredOnly" @change="fetchResidencies()" class="accent-accent">
+        Starred
+      </label>
+
+      <label class="flex items-center gap-2 text-sm cursor-pointer text-muted">
+        <input type="checkbox" x-model="showHidden" @change="fetchResidencies()" class="accent-accent">
+        Show hidden
+      </label>
+    </div>
+  </div>
+
+  <!-- Listings -->
+  <main class="px-6 py-6">
+    <div class="max-w-6xl mx-auto">
+
+      <!-- Empty State -->
+      <div x-show="residencies.length === 0 && !loading" class="text-center py-20 text-muted">
+        <p class="text-lg">No residencies found</p>
+        <p class="text-sm mt-2">Click "Refresh Sources" to scrape the latest listings</p>
+      </div>
+
+      <!-- Loading -->
+      <div x-show="loading" class="text-center py-20 text-muted">
+        <p>Loading...</p>
+      </div>
+
+      <!-- Cards -->
+      <div class="grid gap-4">
+        <template x-for="r in residencies" :key="r.id">
+          <div class="bg-card border border-border rounded-xl p-5 hover:border-accent/50 transition group">
+            <div class="flex items-start justify-between gap-4">
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <a :href="r.url" target="_blank" rel="noopener"
+                    class="text-lg font-semibold hover:text-accent transition truncate" x-text="r.name"></a>
+                  <span x-show="r.sculpture_relevant"
+                    class="shrink-0 bg-indigo-500/20 text-indigo-400 text-xs px-2 py-0.5 rounded-full">sculpture</span>
+                </div>
+                <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-muted mt-1">
+                  <span x-show="r.organization" x-text="r.organization"></span>
+                  <span x-show="r.location" x-text="r.location"></span>
+                  <span x-show="r.source" class="text-xs bg-border/50 px-2 py-0.5 rounded" x-text="sourceLabel(r.source)"></span>
+                </div>
+                <p x-show="r.description" class="text-sm text-muted mt-2 line-clamp-2" x-text="r.description"></p>
+                <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm mt-3">
+                  <span x-show="r.deadline" :class="deadlineClass(r.deadline)">
+                    Deadline: <span x-text="r.deadline === 'rolling' ? 'Rolling' : formatDate(r.deadline)"></span>
+                  </span>
+                  <span x-show="r.disciplines" class="text-muted" x-text="r.disciplines"></span>
+                  <span x-show="r.stipend" class="text-emerald-400" x-text="r.stipend"></span>
+                  <span x-show="r.duration" class="text-muted" x-text="r.duration"></span>
+                </div>
+              </div>
+
+              <!-- Actions -->
+              <div class="flex flex-col gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition">
+                <button @click="toggleStar(r)" class="text-xl" :class="r.starred ? 'text-yellow-400' : 'text-muted hover:text-yellow-400'">
+                  <span x-text="r.starred ? '★' : '☆'"></span>
+                </button>
+                <button @click="hideResidency(r)" class="text-muted hover:text-red-400 text-sm">
+                  Hide
+                </button>
+              </div>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    function app() {
+      return {
+        residencies: [],
+        stats: { total: 0, sculpture: 0, sources: [], lastScrape: null },
+        loading: false,
+        scraping: false,
+        search: '',
+        sourceFilter: '',
+        sculptureOnly: true,
+        starredOnly: false,
+        showHidden: false,
+
+        async init() {
+          await this.fetchStats();
+          await this.fetchResidencies();
+        },
+
+        async fetchResidencies() {
+          this.loading = true;
+          const params = new URLSearchParams();
+          if (this.sourceFilter) params.set('source', this.sourceFilter);
+          if (this.sculptureOnly) params.set('sculpture', '1');
+          if (this.starredOnly) params.set('starred', '1');
+          if (this.showHidden) params.set('show_hidden', '1');
+          if (this.search) params.set('search', this.search);
+
+          const res = await fetch(`/api/residencies?${params}`);
+          this.residencies = await res.json();
+          this.loading = false;
+        },
+
+        async fetchStats() {
+          const res = await fetch('/api/residencies/stats');
+          this.stats = await res.json();
+        },
+
+        async scrape() {
+          this.scraping = true;
+          try {
+            await fetch('/api/scrape', { method: 'POST' });
+            await this.fetchStats();
+            await this.fetchResidencies();
+          } catch (err) {
+            console.error('Scrape failed:', err);
+          }
+          this.scraping = false;
+        },
+
+        async toggleStar(r) {
+          const res = await fetch(`/api/residencies/${r.id}/star`, { method: 'PUT' });
+          const data = await res.json();
+          r.starred = data.starred;
+        },
+
+        async hideResidency(r) {
+          await fetch(`/api/residencies/${r.id}/hide`, { method: 'PUT' });
+          this.residencies = this.residencies.filter(x => x.id !== r.id);
+          this.fetchStats();
+        },
+
+        sourceLabel(source) {
+          const labels = {
+            'aca': 'ACA',
+            'resartis': 'Res Artis',
+            'colossal': 'Colossal',
+            'creative-capital': 'Creative Capital',
+            'artwork-archive': 'Artwork Archive',
+            'direct': 'Direct'
+          };
+          return labels[source] || source;
+        },
+
+        deadlineClass(deadline) {
+          if (deadline === 'rolling') return 'text-blue-400';
+          if (!deadline) return 'text-muted';
+          const d = new Date(deadline);
+          const now = new Date();
+          const days = (d - now) / (1000 * 60 * 60 * 24);
+          if (days < 0) return 'text-gray-500 line-through';
+          if (days < 7) return 'text-red-400 font-semibold';
+          if (days < 30) return 'text-yellow-400';
+          return 'text-emerald-400';
+        },
+
+        formatDate(dateStr) {
+          if (!dateStr) return '';
+          if (dateStr === 'rolling') return 'Rolling';
+          const d = new Date(dateStr);
+          if (isNaN(d)) return dateStr;
+          return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+        }
+      };
+    }
+  </script>
+</body>
+</html>
